@@ -9,22 +9,22 @@ import com.google.common.collect.Maps;
 public class HttpRequest {
 	private final HttpMethod method;
 	private final String host;
-	private final int port;
 	private final String path;
 	private final HashMap<String, String> headers;
+	private final HashMap<String, String> payload;
 	
-	private static final String VERSION = "HTTP/1.1";
+	private static final String VERSION = "HTTP/1.0";
 	private static final String USER_AGENT = "Fakebook Crawler";
 	
 	private final HttpClient httpClient;
 	
-	private HttpRequest(HttpRequestBuilder builder) {
+	private HttpRequest(HttpRequestBuilder builder) throws UnknownHostException, IOException {
 		this.method = builder.method;
 		this.host = builder.host;
-		this.port = builder.port;
 		this.headers = builder.headers;
 		this.path = builder.path;
-		this.httpClient = builder.httpClient;
+		this.payload = builder.payload;
+		this.httpClient = new HttpClient();		
 	}
 	
 	public String buildRequest() {
@@ -35,35 +35,45 @@ public class HttpRequest {
 		for(String header: this.headers.keySet()) {
 			headers += String.format("%s: %s\r\n", header, this.headers.get(header));
 		}
-		return initialRequestLine + userAgentLine + hostLine + headers;
+		String request = initialRequestLine + userAgentLine + hostLine + headers;
+		
+		if(method == HttpMethod.POST) {
+			request += buildPayload();
+		}
+		return request;
 	}
 	
-	public void sendRequest() {
+	private String buildPayload() {
+		String payload = "\r\n";
+		for(String parameter: this.payload.keySet()) {
+			payload += parameter + "=" + this.payload.get(parameter) + "&";
+		}
+		payload += "\r\n";
+		return payload;
+	}
+	
+	public HttpResponse sendRequest() {
 		try {
-			httpClient.connect();
-			String response = httpClient.sendRequest(this);
-			System.out.println(response);
+			return new HttpResponse.HttpResponseBuilder(httpClient.sendRequest(this)).build();
 		} catch (UnknownHostException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		} catch (IOException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
+		throw new RuntimeException("An error occurred while sending the request");
 	}
 	
 	public static class HttpRequestBuilder {
 		private final String host;
-		private final HttpClient httpClient;
 		
 		private String path = "/";
-		private int port = 80;
 		private HttpMethod method = HttpMethod.GET;
 		private HashMap<String, String> headers = Maps.newHashMap();
+		private HashMap<String, String> payload = Maps.newHashMap();
+		private int contentLength = 0;
 		
-		public HttpRequestBuilder(String host, HttpClient httpClient) {
+		public HttpRequestBuilder(String host) {
 			this.host = host;
-			this.httpClient = httpClient;
 		}
 		
 		public HttpRequestBuilder setPath(String path) {
@@ -76,18 +86,19 @@ public class HttpRequest {
 			return this;
 		}
 		
-		public HttpRequestBuilder setPort(int port) {
-			this.port = port;
-			return this;
+		public HttpRequestBuilder addPayloadParameter(String parameterName, String parameterValue) {
+			this.payload.put(parameterName, parameterValue);
+			String newPayload = parameterName + "=" + parameterValue + "&";
+			this.contentLength += newPayload.getBytes().length;
+			return this.addHeader("Content-Length", String.valueOf(contentLength));
 		}
-	
 		
 		public HttpRequestBuilder setMethod(HttpMethod method) {
 			this.method = method;
 			return this;
 		}
-		
-		public HttpRequest build() {
+				
+		public HttpRequest build() throws UnknownHostException, IOException {
 			return new HttpRequest(this);
 		}
 	}
